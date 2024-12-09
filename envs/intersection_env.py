@@ -53,7 +53,7 @@ class IntersectionEnv(AbstractEnv):
                 # "target_speeds": [0, 4.5, 9],
                 "steering_range": [-np.pi / 4, np.pi / 4],
                 "dynamical": True,
-                "EHMI": True
+                "EHMI": False
             },
             "duration": 20,  # [s]
             "destination": "o2",

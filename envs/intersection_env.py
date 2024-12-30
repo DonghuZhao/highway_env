@@ -27,19 +27,23 @@ class IntersectionEnv(AbstractEnv):
             "observation": {
                 "type": "Kinematics",
                 "vehicles_count": 10,
-                "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h", "lat_off", "ang_off"],
-                # "features": ["x", "y", "vx", "vy","lat_off", "ang_off"],        # state_v3
+                # "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h", "lat_off", "ang_off"],
+                "features": ["x", "y", "speed", "heading","lat_off", "ang_off"],        # state_v3
                 # "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h", "lat_off", "ang_off", "EHMI", "Safety"],
                 "features_range": {
                     "x": [-20, 60],
                     "y": [-50, 30],
                     "vx": [-10, 10],
                     "vy": [-10, 10],
+                    "speed": [0, 10],
+                    "heading": [-np.pi, np.pi],
                     "cos_h": [-1, 1],
                     "sin_h": [-1, 1],
                     "lat_off": [-2, 3],
                     "ang_off": [-np.pi / 4, np.pi / 4],
-                    "Safety": [0, 100],
+                    "Safety":  [0, 100],
+                    "distance": [0, 30],
+                    "angle": [0, 360],
                 },
                 "absolute": True,
                 "flatten": False,
@@ -56,7 +60,8 @@ class IntersectionEnv(AbstractEnv):
                 "EHMI": False
             },
             "duration": 20,  # [s]
-            "destination": "o2",
+            "type": "straight",
+            "destination": "o2",        # left:"o2", straight:"
             "simulation_frequency": 10,  # [Hz] # 15
             "policy_frequency": 5,  # [Hz]  # 1
             "controlled_vehicles": 1,
@@ -64,7 +69,7 @@ class IntersectionEnv(AbstractEnv):
             "spawn_probability": 0.6,
             "screen_width": 1000,
             "screen_height": 1000,
-            "centering_position": [0.2, 0.6],
+            "centering_position": [0.8, 0.6],       # 0.2, 0.6
             "scaling": 7.5 * 1.8,
             "collision_reward": -10,  # -3
             "high_speed_reward": 3, # 3  #8
@@ -119,16 +124,16 @@ class IntersectionEnv(AbstractEnv):
         navi = disfo/(d1+d2+d3) #一个0到1的数
 
         # 10 * ang_off ** 2
-        # # reward_v1
-        # reward = self.config["collision_reward"] * vehicle.crashed \
-        #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-        #          + 1 / (1 + 10 * ang_off ** 2) \
-        #          + navi
-
-        # reward_v6
+        # reward_v1
         reward = self.config["collision_reward"] * vehicle.crashed \
                  + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-                 + 1 / (1 + 10 * ang_off ** 2)
+                 + 1 / (1 + 10 * ang_off ** 2) \
+                 + navi
+
+        # reward_v6
+        # reward = self.config["collision_reward"] * vehicle.crashed \
+        #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
+        #          + 1 / (1 + 10 * ang_off ** 2)
 
         # reward_v2
         # # 车速过低时的惩罚
@@ -145,11 +150,14 @@ class IntersectionEnv(AbstractEnv):
             reward += self._passtime_reward()
         # reward_v7
         if vehicle.crashed:
-            print("crash")
-            reward = self.config["collision_reward"] * 3
+            # print("crash")
+            reward = self.config["collision_reward"]
 
         # 如果车辆已经到达目的地，则将到达奖励 self.config["arrived_reward"] 赋值给总奖励
-        reward = self.config["arrived_reward"] if self.has_arrived(vehicle) else reward
+        # print(vehicle.lane_index, vehicle.lane.local_coordinates(vehicle.position)[0])
+        if self.has_arrived(vehicle):
+            reward = self.config["arrived_reward"]
+            # print("arrived")
         if self.config["normalize_reward"]:
             reward = utils.lmap(reward, [self.config["collision_reward"], self.config["arrived_reward"]], [-1, 1])
         reward = 0 if not vehicle.on_road else reward
@@ -171,7 +179,7 @@ class IntersectionEnv(AbstractEnv):
                 if not self.other_pass_time:
                     self.other_pass_time = self.steps
         if self.ego_pass_time and self.other_pass_time:
-            print('pet:', abs(self.other_pass_time - self.ego_pass_time))
+            # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
             return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
         # print(self.ego_pass_time, self.other_pass_time)
         return 0
@@ -181,7 +189,7 @@ class IntersectionEnv(AbstractEnv):
         if self.vehicle.lane_index == ('il2', 'o2', 0):
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
-            print('travel_time:', self.ego_travel_time)
+            # print('travel_time:', self.ego_travel_time)
             return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / 200)
         return 0
 
@@ -220,6 +228,11 @@ class IntersectionEnv(AbstractEnv):
     #车道边界终止条件
     def _agent_is_out_of_boundary(self) -> bool:
         """The episode is over when ego vehicle cross the boundary of the road."""
+        if self.config["type"] == "straight":
+            return (self.vehicle.lane_index != ('o3', 'ir3', 0)) and (
+                        self.vehicle.lane_index != ('ir3', 'il1', 0)) and (
+                    self.vehicle.lane_index != ('il1', 'o1', 0))
+
         return (self.vehicle.lane_index != ('o1', 'ir1', 0)) and (self.vehicle.lane_index != ('ir1', 'il2', 0)) and (
                 self.vehicle.lane_index != ('il2', 'o2', 0))
 
@@ -366,7 +379,8 @@ class IntersectionEnv(AbstractEnv):
 
         #选择主车进入的交叉口
         # mode = 's2n'
-        mode = 'w2e'
+        mode = 'e2w'
+        # mode = 'w2e'
         if mode == 'w2e':
             ego_lane = ("o1", "ir1", 0)
             ego_target = "o2"
@@ -374,19 +388,26 @@ class IntersectionEnv(AbstractEnv):
             #东侧直行车
             self._spawn_vehicle(logitudinal, speed, spawn_probability=1, go_straight=True, position_deviation=0,
                                 speed_deviation=0, lane_index=("o3", "ir3", 0)) #longitudinal = 8 # speed = 10  # position_Deviation = 0.1 # 单机（0， 0）
-            #西侧直行车
+            # #西侧直行车
             # self._spawn_vehicle(5, lane_index=("ir1a", "il3a", 0), dest_index="o3", speed=12)#纵向最小为5
             # # 由东侧进口道直行
             # self._spawn_vehicle(25, lane_index=("ir3a", "il1a", 0), dest_index="o1", speed=8)
-            #西出口道直行
+            # # 西出口道直行
             # self._spawn_vehicle(3, lane_index=("il1", "o1", 0), dest_index="o1", speed=8)
             # #西出口道右转
             # self._spawn_vehicle(7, lane_index=("o1a", "ir1a", 0), dest_index="o0", speed=0)
             # self._spawn_vehicle(11, lane_index=("ir1a", "il0", 0), dest_index="o0", speed=9)
-
+            #
             # for t in range(3):
             #     #由东侧进口道右转到北
             #     self._spawn_vehicle([1, 5, 14][t], lane_index=("o3a", "ir3a", 0), dest_index="o2", speed=15)
+        elif mode == "e2w":
+            ego_lane = ("o3", "ir3", 0)
+            ego_target = "o1"
+            # 西侧左转车     # 20  #
+            self._spawn_vehicle(5, 5, spawn_probability=1, dest_index="o2", position_deviation=0.1,
+                                speed_deviation=0, lane_index=("o1", "ir1", 0))
+
         else:
             ego_lane = ("o0", "ir0", 0)
             ego_target = "o1"
@@ -406,7 +427,7 @@ class IntersectionEnv(AbstractEnv):
             ego_lane = self.road.network.get_lane(ego_lane)
             ego_vehicle = self.action_type.vehicle_class(
                              self.road,
-                             ego_lane.position(5, 0),  # -1
+                             ego_lane.position(20, 0),  # -1        #5logi
                              speed=6, # 0
                              heading=ego_lane.heading_at(60))
             try:
@@ -445,27 +466,28 @@ class IntersectionEnv(AbstractEnv):
         return vehicle
 
     def _vehicle_generator(self):
-        # v1
-        logitudinal = [0, 15, 30]
-        speed = [4, 7, 10]
-        # 匀速运行结果
-        # logitudinal：   0     15      30
-        # speed：4        L      L       ×
-        # speed： 7       L      ×       S
-        # speed： 10      ×      ×       S
-        i = random.choice(range(len(logitudinal)))
-        # i = 2
-        # logitudinal = random.random() * 30
-        j = random.choice(range(len(speed)))
-        # j = 1
-        # if (i, j) != (2, 1):
-        #     if random.random() < 0.5:
-        #         return self._vehicle_generator()
-        # if (i, j) not in [(0, 2), (1, 1), (1, 2), (2, 0)]:
-        #     if random.random() < 0.8:
-        #         return self._vehicle_generator()
-        # return logitudinal, speed[j]
-        return logitudinal[i], speed[j]
+
+        discrete = False
+        if discrete:
+            # v1
+            logitudinal = [0, 15, 30]
+            speed = [4, 7, 10]
+            # 匀速运行结果
+            # logitudinal：   0     15      30
+            # speed：4        L      L       ×
+            # speed： 7       L      ×       S
+            # speed： 10      ×      ×       S
+            i = random.choice(range(len(logitudinal)))
+            i = 0
+            j = random.choice(range(len(speed)))
+            j = 1
+            return logitudinal[i], speed[j]
+        else:
+            logitudinal = np.random.randint(10, 30)
+            speed = np.random.randint(6, 8)
+            logitudinal = 15
+            speed = 7
+            return logitudinal, speed
 
     def _clear_vehicles(self) -> None:
         is_leaving = lambda vehicle: "il" in vehicle.lane_index[0] and "o" in vehicle.lane_index[1] \

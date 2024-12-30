@@ -209,6 +209,7 @@ class Vehicle(RoadObject):
             'vx': self.velocity[0],
             'vy': self.velocity[1],
             'heading': self.heading,
+            'speed': self.speed,
             'cos_h': self.direction[0],
             'sin_h': self.direction[1],
             'cos_d': self.destination_direction[0],

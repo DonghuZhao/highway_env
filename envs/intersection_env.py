@@ -41,9 +41,10 @@ class IntersectionEnv(AbstractEnv):
                     "sin_h": [-1, 1],
                     "lat_off": [-2, 3],
                     "ang_off": [-np.pi / 4, np.pi / 4],
-                    "Safety":  [0, 100],
+                    "Safety":  [0, 150],
                     "distance": [0, 30],
                     "angle": [0, 360],
+                    "ob_speed": [0, 10],
                 },
                 "absolute": True,
                 "flatten": False,
@@ -125,15 +126,15 @@ class IntersectionEnv(AbstractEnv):
 
         # 10 * ang_off ** 2
         # reward_v1
-        reward = self.config["collision_reward"] * vehicle.crashed \
-                 + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-                 + 1 / (1 + 10 * ang_off ** 2) \
-                 + navi
-
-        # reward_v6
         # reward = self.config["collision_reward"] * vehicle.crashed \
         #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-        #          + 1 / (1 + 10 * ang_off ** 2)
+        #          + 1 / (1 + 10 * ang_off ** 2) \
+        #          + navi
+
+        # reward_v6
+        reward = self.config["collision_reward"] * vehicle.crashed \
+                 + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
+                 + 1 / (1 + 10 * ang_off ** 2)
 
         # reward_v2
         # # 车速过低时的惩罚
@@ -169,28 +170,45 @@ class IntersectionEnv(AbstractEnv):
 
     def _pet_reward(self):
         """给出冲突的稀疏奖励"""
-        # 冲突点 左转车 y:-17.5，
-        # 直行车 x: 3
-        if self.vehicle.position[1] < -17.5:
-            if not self.ego_pass_time:
-                self.ego_pass_time = self.steps
-        if len(self.road.vehicles) == 2:
-            if self.road.vehicles[0].position[0] < 3:
-                if not self.other_pass_time:
-                    self.other_pass_time = self.steps
-        if self.ego_pass_time and self.other_pass_time:
-            # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
-            return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
+        if self.config['type'] == "left":
+            # 冲突点 左转车 y:-17.5，
+            # 直行车 x: 3
+            if self.vehicle.position[1] < -17.5:
+                if not self.ego_pass_time:
+                    self.ego_pass_time = self.steps
+            if len(self.road.vehicles) == 2:
+                if self.road.vehicles[0].position[0] < 3:
+                    if not self.other_pass_time:
+                        self.other_pass_time = self.steps
+            if self.ego_pass_time and self.other_pass_time:
+                print('pet:', abs(self.other_pass_time - self.ego_pass_time))
+                return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
+        elif self.config['type'] == "straight":
+            if self.vehicle.position[0] < 3:
+                if not self.ego_pass_time:
+                    self.ego_pass_time = self.steps
+            if len(self.road.vehicles) == 2:
+                if self.road.vehicles[0].position[1] < -17.5:
+                    if not self.other_pass_time:
+                       self.other_pass_time = self.steps
+            if self.ego_pass_time and self.other_pass_time:
+                print('pet:', abs(self.other_pass_time - self.ego_pass_time))
+                return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
         # print(self.ego_pass_time, self.other_pass_time)
         return 0
 
     def _passtime_reward(self):
         """给出效率的稀疏奖励"""
-        if self.vehicle.lane_index == ('il2', 'o2', 0):
+        target_lane = ('il2', 'o2', 0)
+        MAXPASSTIME = 200
+        if self.config['type'] == "straight":
+            target_lane = ('il1', 'o1', 0)
+
+        if self.vehicle.lane_index == target_lane:
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
-            # print('travel_time:', self.ego_travel_time)
-            return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / 200)
+            print('travel_time:', self.ego_travel_time)
+            return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / MAXPASSTIME)
         return 0
 
     def _is_terminated(self) -> bool:
@@ -404,8 +422,9 @@ class IntersectionEnv(AbstractEnv):
         elif mode == "e2w":
             ego_lane = ("o3", "ir3", 0)
             ego_target = "o1"
-            # 西侧左转车     # 20  #
-            self._spawn_vehicle(5, 5, spawn_probability=1, dest_index="o2", position_deviation=0.1,
+            logitudinal, speed = self._vehicle_generator()
+            # 西侧左转车     # 20
+            self._spawn_vehicle(logitudinal, speed, spawn_probability=1, dest_index="o2", position_deviation=0.1,
                                 speed_deviation=0, lane_index=("o1", "ir1", 0))
 
         else:
@@ -485,8 +504,11 @@ class IntersectionEnv(AbstractEnv):
         else:
             logitudinal = np.random.randint(10, 30)
             speed = np.random.randint(6, 8)
-            logitudinal = 15
-            speed = 7
+            if self.config["type"] == "straight":
+                logitudinal = np.random.randint(0, 25)
+                speed = np.random.randint(6, 8)
+            # logitudinal = 0
+            # speed = 6
             return logitudinal, speed
 
     def _clear_vehicles(self) -> None:

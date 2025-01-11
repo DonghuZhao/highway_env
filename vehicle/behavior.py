@@ -146,7 +146,7 @@ class IDMVehicle(ControlledVehicle):
         """
         # 计算行车风险场
         self.DSF = self._calc_DSF(self.road.vehicles[0], self.road.vehicles[1])
-        # print(self.DSF)
+        # print("DSF:", self.DSF)
         for v in self.road.vehicles:
             v.DSF = self.DSF
         # 更改IDM行为
@@ -154,6 +154,7 @@ class IDMVehicle(ControlledVehicle):
             AggressiveIDMVehicle.updateParameter(ego_vehicle)
         elif self.EHMI == 'R':
             DefensiveIDMVehicle.updateParameter(ego_vehicle)
+        # mu = max(0, min(self.DSF / 150, 1))
 
         if not ego_vehicle or not isinstance(ego_vehicle, Vehicle):
             return 0
@@ -375,27 +376,8 @@ class LinearVehicle(IDMVehicle):
         :param rear_vehicle: the vehicle following the ego-vehicle
         :return: the acceleration command for the ego-vehicle [m/s2]
         """
-        # 计算行车风险场
-        self.DSF = self._calc_DSF(self.road.vehicles[0], self.road.vehicles[1])
-        for v in self.road.vehicles:
-            v.DSF = self.DSF
-        # # 更改IDM行为
-        if self.EHMI == 'Y' :
-            # print("YYYYYY")
-            # if np.random.random() < 1:
-            if True:
-                acceleration = float(np.dot(AggressiveVehicle.ACCELERATION_PARAMETERS,
-                            self.acceleration_features(ego_vehicle, front_vehicle, rear_vehicle)))
-                # print("agg")
-            else:
-                acceleration = float(np.dot(DefensiveVehicle.ACCELERATION_PARAMETERS,
-                            self.acceleration_features(ego_vehicle, front_vehicle, rear_vehicle)))
-                # print("def")
-        elif self.EHMI == 'R':
-            acceleration = float(np.dot(DefensiveVehicle.ACCELERATION_PARAMETERS,
-                                        self.acceleration_features(ego_vehicle, front_vehicle, rear_vehicle)))
-        else:
-            acceleration = float(np.dot(self.ACCELERATION_PARAMETERS,
+
+        acceleration = float(np.dot(self.ACCELERATION_PARAMETERS,
                             self.acceleration_features(ego_vehicle, front_vehicle, rear_vehicle)))
 
         return acceleration
@@ -641,3 +623,54 @@ class DefensiveIDMVehicle(IDMVehicle):
         vehicle.TIME_WANTED = cls.TIME_WANTED
         vehicle.DELTA = cls.DELTA
         vehicle.DELTA_RANGE = cls.DELTA_RANGE
+
+
+class LinearIDMVehicle(IDMVehicle):
+
+    # Longitudinal policy parameters
+    ACC_MAX = 6.0  # [m/s2]
+    """Maximum acceleration."""
+
+    COMFORT_ACC_MAX = 2.5  # [m/s2] # 3.0
+    """Desired maximum acceleration."""
+
+    COMFORT_ACC_MIN = -2.0  # [m/s2]    # -5.0
+    """Desired maximum deceleration."""
+
+    DISTANCE_WANTED = 5.0 + ControlledVehicle.LENGTH  # [m]    # 5.0
+    """Desired jam distance to the front vehicle."""
+
+    TIME_WANTED = 1.5  # [s]    # 1.5
+    """Desired time gap to the front vehicle."""
+
+    DELTA = 4.0  # []
+    """Exponent of the velocity term."""
+
+    DELTA_RANGE = [3.5, 4.5]
+    """Range of delta when chosen randomly."""
+
+    PARAMETERS_RANGE = {
+        "COMFORT_ACC_MAX": [5.0, 2.5],
+        "DISTANCE_WANTED": [3.0 + ControlledVehicle.LENGTH, 5.0 + ControlledVehicle.LENGTH],
+        "TIME_WANTED": [0.5, 1.5],
+    }
+
+    @classmethod
+    def updateParameter(cls, vehicle, mu=0):
+        """
+        根据mu的大小线性地更新IDM参数
+        :param vehicle:
+        :param mu: [0,1] mu == 0时为Aggressive， mu == 1时为Defensive
+        :return:
+        """
+        vehicle.ACC_MAX = cls.ACC_MAX
+        vehicle.COMFORT_ACC_MAX = linear_update(cls.PARAMETERS_RANGE["COMFORT_ACC_MAX"], mu)
+        vehicle.COMFORT_ACC_MIN = cls.COMFORT_ACC_MIN
+        vehicle.DISTANCE_WANTED = linear_update(cls.PARAMETERS_RANGE["DISTANCE_WANTED"], mu)
+        vehicle.TIME_WANTED = linear_update(cls.PARAMETERS_RANGE["TIME_WANTED"], mu)
+        vehicle.DELTA = cls.DELTA
+        vehicle.DELTA_RANGE = cls.DELTA_RANGE
+
+def linear_update(range, mu):
+    """线性返回值"""
+    return range[0] + mu * (range[1] - range[0])

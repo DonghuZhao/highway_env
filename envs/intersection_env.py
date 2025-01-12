@@ -56,7 +56,7 @@ class IntersectionEnv(AbstractEnv):
                 "longitudinal": True,
                 "lateral": True,
                 # "target_speeds": [0, 4.5, 9],
-                "steering_range": [-np.pi / 4, np.pi / 4],
+                "steering_range": [-np.pi / 8, np.pi / 8],  # 4
                 "dynamical": True,
                 "EHMI": False
             },
@@ -70,7 +70,7 @@ class IntersectionEnv(AbstractEnv):
             "spawn_probability": 0.6,
             "screen_width": 1000,
             "screen_height": 1000,
-            "centering_position": [0.8, 0.6],       # 0.2, 0.6
+            "centering_position": [0.2, 0.6],       # 0.2, 0.6
             "scaling": 7.5 * 1.8,
             "collision_reward": -10,  # -3
             "high_speed_reward": 8, # 3  #8

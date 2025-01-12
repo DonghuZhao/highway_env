@@ -61,7 +61,7 @@ class IntersectionEnv(AbstractEnv):
                 "EHMI": False
             },
             "duration": 20,  # [s]
-            "type": "straight",
+            "type": "left",
             "destination": "o2",        # left:"o2", straight:"
             "simulation_frequency": 10,  # [Hz] # 15
             "policy_frequency": 5,  # [Hz]  # 1
@@ -73,7 +73,7 @@ class IntersectionEnv(AbstractEnv):
             "centering_position": [0.8, 0.6],       # 0.2, 0.6
             "scaling": 7.5 * 1.8,
             "collision_reward": -10,  # -3
-            "high_speed_reward": 3, # 3  #8
+            "high_speed_reward": 8, # 3  #8
             "arrived_reward": 10,
             "reward_speed_range": [3.0, 10.0],  # v2: 3.0
             "pet_reward": 5,    #5
@@ -136,7 +136,7 @@ class IntersectionEnv(AbstractEnv):
                  + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
                  + 1 / (1 + 10 * ang_off ** 2)
 
-        # reward_v2
+        # # reward_v2
         # # 车速过低时的惩罚
         # if self.vehicle.speed < 2:
         #     reward -= navi
@@ -181,7 +181,7 @@ class IntersectionEnv(AbstractEnv):
                     if not self.other_pass_time:
                         self.other_pass_time = self.steps
             if self.ego_pass_time and self.other_pass_time:
-                print('pet:', abs(self.other_pass_time - self.ego_pass_time))
+                # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
                 return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
         elif self.config['type'] == "straight":
             if self.vehicle.position[0] < 3:
@@ -192,7 +192,7 @@ class IntersectionEnv(AbstractEnv):
                     if not self.other_pass_time:
                        self.other_pass_time = self.steps
             if self.ego_pass_time and self.other_pass_time:
-                print('pet:', abs(self.other_pass_time - self.ego_pass_time))
+                # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
                 return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
         # print(self.ego_pass_time, self.other_pass_time)
         return 0
@@ -207,7 +207,7 @@ class IntersectionEnv(AbstractEnv):
         if self.vehicle.lane_index == target_lane:
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
-            print('travel_time:', self.ego_travel_time)
+            # print('travel_time:', self.ego_travel_time)
             return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / MAXPASSTIME)
         return 0
 
@@ -397,8 +397,8 @@ class IntersectionEnv(AbstractEnv):
 
         #选择主车进入的交叉口
         # mode = 's2n'
-        mode = 'e2w'
-        # mode = 'w2e'
+        mode = 'w2e'
+        mode = 'e2w' if self.config["type"] == 'straight' else 'w2e'
         if mode == 'w2e':
             ego_lane = ("o1", "ir1", 0)
             ego_target = "o2"
@@ -442,11 +442,12 @@ class IntersectionEnv(AbstractEnv):
 
         # Controlled vehicles
         self.controlled_vehicles = []
+        logitudinal = 20 if self.config['type'] == 'straight' else 5
         for ego_id in range(0, self.config["controlled_vehicles"]):
             ego_lane = self.road.network.get_lane(ego_lane)
             ego_vehicle = self.action_type.vehicle_class(
                              self.road,
-                             ego_lane.position(20, 0),  # -1        #5logi
+                             ego_lane.position(logitudinal, 0),  # -1        #5logi
                              speed=6, # 0
                              heading=ego_lane.heading_at(60))
             try:

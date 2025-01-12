@@ -11,6 +11,8 @@ from highway_env.road.road import RoadNetwork
 from highway_env.vehicle.kinematics import Vehicle
 from highway_env.vehicle.controller import ControlledVehicle
 
+from highway_env.envs.common.observation_utils import ObservationUtils
+
 class IntersectionEnv(AbstractEnv):
 
     ACTIONS: Dict[int, str] = {
@@ -154,6 +156,11 @@ class IntersectionEnv(AbstractEnv):
             # print("crash")
             reward = self.config["collision_reward"]
 
+        # reward_v8
+        pet = self._safety_sensor()
+        if pet < 10:
+            reward -= (10 - pet) / 3
+
         # 如果车辆已经到达目的地，则将到达奖励 self.config["arrived_reward"] 赋值给总奖励
         # print(vehicle.lane_index, vehicle.lane.local_coordinates(vehicle.position)[0])
         if self.has_arrived(vehicle):
@@ -210,6 +217,23 @@ class IntersectionEnv(AbstractEnv):
             # print('travel_time:', self.ego_travel_time)
             return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / MAXPASSTIME)
         return 0
+
+    def _safety_sensor(self) -> float:
+        """
+        Compute the safety sensor of a vehicle.
+        """
+        x, y = self.vehicle.position
+        obx, oby = self.road.vehicles[0].position
+        v = self.vehicle.speed
+        yaw = self.vehicle.heading
+        obv = self.road.vehicles[0].speed
+        obyaw = self.road.vehicles[0].heading
+
+        distance = ObservationUtils.calculate_distance(x, y, obx, oby)
+        if distance > 80:
+            return float('inf')
+        pet = ObservationUtils.calculate_ttc(x, y, v, yaw, obx, oby, obv, obyaw, distance)
+        return pet
 
     def _is_terminated(self) -> bool:
         # if any(vehicle.crashed for vehicle in self.controlled_vehicles):

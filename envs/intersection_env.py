@@ -58,7 +58,7 @@ class IntersectionEnv(AbstractEnv):
                 "longitudinal": True,
                 "lateral": True,
                 # "target_speeds": [0, 4.5, 9],
-                "steering_range": [-np.pi / 8, np.pi / 8],  # 4
+                "steering_range": [-np.pi / 4, np.pi / 4],
                 "dynamical": True,
                 "EHMI": False
             },
@@ -75,7 +75,7 @@ class IntersectionEnv(AbstractEnv):
             "centering_position": [0.2, 0.6],       # 0.2, 0.6
             "scaling": 7.5 * 1.8,
             "collision_reward": -10,  # -3
-            "high_speed_reward": 8, # 3  #8
+            "high_speed_reward": 3, # 3  #8
             "arrived_reward": 10,
             "reward_speed_range": [3.0, 10.0],  # v2: 3.0
             "pet_reward": 5,    #5
@@ -94,6 +94,7 @@ class IntersectionEnv(AbstractEnv):
         self.ego_pass_time = None
         self.other_pass_time = None
         self.ego_travel_time = None
+        self.pass_stop_line = False
         # 调用父类的 __init__ 方法，传递所有参数
         super().__init__(*args, **kwargs)
 
@@ -128,15 +129,15 @@ class IntersectionEnv(AbstractEnv):
 
         # 10 * ang_off ** 2
         # reward_v1
-        # reward = self.config["collision_reward"] * vehicle.crashed \
-        #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-        #          + 1 / (1 + 10 * ang_off ** 2) \
-        #          + navi
-
-        # reward_v6
         reward = self.config["collision_reward"] * vehicle.crashed \
                  + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
-                 + 1 / (1 + 10 * ang_off ** 2)
+                 + 1 / (1 + 10 * ang_off ** 2) \
+                 + navi
+
+        # # reward_v6
+        # reward = self.config["collision_reward"] * vehicle.crashed \
+        #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
+        #          + 1 / (1 + 10 * ang_off ** 2)
 
         # # reward_v2
         # # 车速过低时的惩罚
@@ -156,10 +157,13 @@ class IntersectionEnv(AbstractEnv):
             # print("crash")
             reward = self.config["collision_reward"]
 
-        # reward_v8
-        pet = self._safety_sensor()
-        if pet < 10:
-            reward -= (10 - pet) / 3
+        # # reward_v8
+        # pet = self._safety_sensor()
+        # # print("pet_reward:", pet)
+        # reward += pet
+
+        # reward_v9
+        reward += self._stop_line_reward()
 
         # 如果车辆已经到达目的地，则将到达奖励 self.config["arrived_reward"] 赋值给总奖励
         # print(vehicle.lane_index, vehicle.lane.local_coordinates(vehicle.position)[0])
@@ -171,7 +175,9 @@ class IntersectionEnv(AbstractEnv):
         reward = 0 if not vehicle.on_road else reward
 
         reward = 0 if self._is_truncated() and not self.has_arrived(vehicle) else reward
-        # print(reward)
+
+        reward = 0 if self._is_terminated() and not self.has_arrived(vehicle) else reward
+        # print("norm_reward:", reward)
 
         return reward
 
@@ -230,10 +236,40 @@ class IntersectionEnv(AbstractEnv):
         obyaw = self.road.vehicles[0].heading
 
         distance = ObservationUtils.calculate_distance(x, y, obx, oby)
-        if distance > 80:
-            return float('inf')
-        pet = ObservationUtils.calculate_ttc(x, y, v, yaw, obx, oby, obv, obyaw, distance)
-        return pet
+        if distance > 60:
+            return 0
+        pet = ObservationUtils.calculate_pre_pet(x, y, v, yaw, obx, oby, obv, obyaw, ego_type="left")
+        # print("pet:", pet)
+        pet = abs(pet)
+        if pet > 10:
+            return 0
+        # if distance > 30:
+        #     return - (10 - pet) * 0.3 * (60 - distance) / 60
+        return - (10 - pet) * 0.3 * (60 - distance) / 60
+
+    def _stop_line_reward(self, ego_type="left") -> float:
+
+        x, y = self.vehicle.position
+        obx, oby = self.road.vehicles[0].position
+        v = self.vehicle.speed
+        yaw = self.vehicle.heading
+        obv = self.road.vehicles[0].speed
+        obyaw = self.road.vehicles[0].heading
+
+        if x < -4 or self.pass_stop_line:
+            # print(self.pass_stop_line)
+            return 0
+        self.pass_stop_line = True
+        reward = self.config['arrived_reward'] / 2
+        pet = ObservationUtils.calculate_pre_pet(x, y, v, yaw, obx, oby, obv, obyaw, ego_type=ego_type)
+        # print("pet:", pet)
+        pet = abs(pet)
+        if pet > 5:
+            return reward
+        return reward - (5 - pet) * 0.5
+
+
+
 
     def _is_terminated(self) -> bool:
         # if any(vehicle.crashed for vehicle in self.controlled_vehicles):
@@ -532,8 +568,8 @@ class IntersectionEnv(AbstractEnv):
             if self.config["type"] == "straight":
                 logitudinal = np.random.randint(0, 25)
                 speed = np.random.randint(6, 8)
-            # logitudinal = 0
-            # speed = 6
+            # logitudinal = 30
+            # speed = 8
             return logitudinal, speed
 
     def _clear_vehicles(self) -> None:
@@ -559,7 +595,7 @@ class ContinuousIntersectionEnv(IntersectionEnv):
         config = super().default_config()
         config['action'].update({
                     "type": "ContinuousAction",
-                    "steering_range": [-np.pi / 3, np.pi / 3],
+                    "steering_range": [-np.pi / 8, np.pi / 8], # 3
                     "longitudinal": True,
                     "lateral": True,
                     "dynamical": True

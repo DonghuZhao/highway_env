@@ -147,13 +147,21 @@ class ObservationUtils:
 
             angle = ObservationUtils.calculate_angle(ego_position, ego_vehicle['heading'], agent_position)
 
+            ttc_pet = ObservationUtils.calculate_pre_pet(ego_vehicle['x'], ego_vehicle['y'],
+                                                     ego_vehicle['speed'], ego_vehicle['heading'],
+                                                     glob_x[agent_id], glob_y[agent_id],
+                                                     glob_v[agent_id], glob_yaw[agent_id], ego_type="left")
+            # print("ttc_pet:", ttc_pet)
+
             # -------------仅输出distance,angle,speed------------
-            # 归一化距离
+            # 归一化
             max_distance = np.float32(60.0)
             norm_distance = min(distance / max_distance, 1.0)
             norm_angle = min(angle / 360, 1)
+            norm_ttc = max(-10.0, min(ttc_pet, 10.0)) / 10.0
+
             speed = min(glob_v[agent_id] / 10, 1)
-            lidar = [norm_distance, norm_angle, speed]
+            lidar = [norm_distance, norm_angle, speed, norm_ttc]
             lidar_obs[agent_id] = lidar
 
             # # ------------输出雷达结果---------------------------
@@ -211,3 +219,92 @@ class ObservationUtils:
                 lidar[i] = distances[lidar[i] - 1]  # car_id是从1开始的，而索引是从0开始的
 
         return lidar
+
+    @staticmethod
+    def calculate_ttc_pet(egox, egoy, egov, egoyaw_rad, otherx, othery, otherv, otheryaw_rad, distance):
+
+        # 计算本车的速度分量
+        egovx = egov * math.cos(egoyaw_rad)
+        egovy = egov * math.sin(egoyaw_rad)
+        # 计算其他车辆的速度分量
+        othervx = otherv * math.cos(otheryaw_rad)
+        othervy = otherv * math.sin(otheryaw_rad)
+        egoyaw = ObservationUtils.radians_to_degrees(egoyaw_rad)
+        otheryaw = ObservationUtils.radians_to_degrees(otheryaw_rad)
+        # 计算航向角差的绝对值
+        angle_diff = abs(egoyaw - otheryaw) % 360
+        # 角度差可能超过180度，取最小的角度差
+        if angle_diff > 180:
+            angle_diff = 360 - angle_diff
+        # 计算距离
+        dx = otherx - egox
+        dy = othery - egoy
+        delta_vx = egovx - othervx
+        delta_vy = egovy - othervy
+        # 判断冲突对象是否在主车行进方向的后方
+        dot_product = dx * egovx + dy * egovy  # 向量点积
+        if dot_product < 0:  # 如果点积小于0，表示冲突对象在主车后方
+            return float('inf')
+
+        if angle_diff > 10:
+            # 两车角度大于30度，计算 PET,交叉冲突
+            if (egovx == 0 and egovy == 0) or (othervx == 0 and othervy == 0) or (delta_vx == 0 and delta_vy == 0):
+                return float('inf')  # 如果任一车辆不动，则没有冲突，PET 为无穷大
+            else:
+                # 初始化到冲突点的时间
+                ttc_ego = float('inf')
+                ttc_other = float('inf')
+
+                # 计算主车到冲突点的时间
+                if delta_vx != 0:
+                    ttc_ego = dx / delta_vx
+                if delta_vy != 0:
+                    ttc_ego = min(ttc_ego, dy / delta_vy)
+
+                # 计算其他车到冲突点的时间
+                if delta_vx != 0:
+                    ttc_other = -dx / othervx if othervx != 0 else float('inf')
+                if delta_vy != 0:
+                    ttc_other = min(ttc_other, -dy / othervy if othervy != 0 else float('inf'))
+
+                # 计算 PET
+                pet = ttc_ego - ttc_other
+                if pet > 0:
+                    return pet
+                else:
+                    # 对于主车更快到达冲突点
+                    return float('inf')
+        else:
+            # 计算 TTC
+            rel_vx = egovx - othervx
+            rel_vy = egovy - othervy
+            if abs(rel_vx) < 0.3 and abs(rel_vy) < 0.3:
+                ttc = float('inf')  # 无碰撞
+            else:
+                relative_speed = math.sqrt(rel_vx ** 2 + rel_vy ** 2)
+                ttc = distance / relative_speed
+            return ttc  # 返回 None 表示不计算 PET
+
+    @staticmethod
+    def calculate_pre_pet(ego_x, ego_y, ego_v, ego_yaw, other_x, other_y, other_v, other_yaw, ego_type="left"):
+        """calculate pre pet
+        conflict_point:[3, -17.5]
+        """
+        conflict_x, conflict_y = 3, -17.5
+        ego_distance_to_conflict = ObservationUtils.calculate_distance(ego_x, ego_y, conflict_x, conflict_y)
+        other_distance_to_conflict = ObservationUtils.calculate_distance(other_x, other_y, conflict_x, conflict_y)
+        if ego_v == 0 or other_v == 0:
+            return float('inf')
+        if ego_type == "left":
+            if ego_y < conflict_y or other_x < conflict_x:
+                return float('inf')
+        else:
+            if ego_x < conflict_x or other_y < conflict_y:
+                return float('inf')
+
+        ego_ttc = ego_distance_to_conflict / ego_v
+        other_ttc = other_distance_to_conflict / other_v
+
+        return ego_ttc - other_ttc
+
+

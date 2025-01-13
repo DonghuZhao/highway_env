@@ -13,7 +13,7 @@ from highway_env.road.lane import AbstractLane
 from highway_env.utils import distance_to_circle, Vector
 from highway_env.vehicle.controller import MDPVehicle
 from highway_env.vehicle.kinematics import Vehicle
-from observation_utils import *
+from highway_env.envs.common.observation_utils import *
 
 if TYPE_CHECKING:
     from highway_env.envs.common.abstract import AbstractEnv

@@ -149,16 +149,27 @@ class IDMVehicle(ControlledVehicle):
         # print("DSF:", self.DSF)
         for v in self.road.vehicles:
             v.DSF = self.DSF
-        # 更改IDM行为
-        if self.EHMI == 'Y' :
-            AggressiveIDMVehicle.updateParameter(ego_vehicle)
-        elif self.EHMI == 'R':
-            DefensiveIDMVehicle.updateParameter(ego_vehicle)
-        # mu = max(0, min(self.DSF / 150, 1))
+        # # 更改IDM行为
+        # if self.EHMI == 'Y' :
+        #     AggressiveIDMVehicle.updateParameter(ego_vehicle)
+        # elif self.EHMI == 'R':
+        #     DefensiveIDMVehicle.updateParameter(ego_vehicle)
 
         if not ego_vehicle or not isinstance(ego_vehicle, Vehicle):
             return 0
         ego_target_speed = getattr(ego_vehicle, "target_speed", 0)
+
+        # --------------MY EDIT--------------------
+        if self.EHMI is not None:
+            mu = max(0, min(self.DSF / 150, 1))
+            if self.EHMI == 'Y':
+                mu = np.clip(mu / 2, 0, 0.7)
+            elif self.EHMI == 'R':
+                mu = np.clip(mu / 2 + 0.5, 0.3, 1.0)
+            LinearIDMVehicle.updateParameter(ego_vehicle, mu=mu)
+            ego_target_speed = ego_vehicle.TARGET_SPEED
+        # print("ego_target_speed:", ego_target_speed)
+        # ----------------END----------------------
         if ego_vehicle.lane and ego_vehicle.lane.speed_limit is not None:
             ego_target_speed = np.clip(ego_target_speed, 0, ego_vehicle.lane.speed_limit)
         acceleration = self.COMFORT_ACC_MAX * (1 - np.power(
@@ -653,6 +664,7 @@ class LinearIDMVehicle(IDMVehicle):
         "COMFORT_ACC_MAX": [5.0, 2.5],
         "DISTANCE_WANTED": [3.0 + ControlledVehicle.LENGTH, 5.0 + ControlledVehicle.LENGTH],
         "TIME_WANTED": [0.5, 1.5],
+        "TARGET_SPEED": [10, 4],
     }
 
     @classmethod
@@ -670,6 +682,7 @@ class LinearIDMVehicle(IDMVehicle):
         vehicle.TIME_WANTED = linear_update(cls.PARAMETERS_RANGE["TIME_WANTED"], mu)
         vehicle.DELTA = cls.DELTA
         vehicle.DELTA_RANGE = cls.DELTA_RANGE
+        vehicle.TARGET_SPEED = int(linear_update(cls.PARAMETERS_RANGE["TARGET_SPEED"], mu))
 
 def linear_update(range, mu):
     """线性返回值"""

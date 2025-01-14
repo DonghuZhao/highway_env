@@ -234,30 +234,9 @@ class KinematicObservation(ObservationType):
         df = df[self.features]
 
         if self.env.config["action"]["EHMI"]:
+            df["EHMI_SHOW"] = 1 if self.env.vehicle.EHMI is not None else 0
             df["EHMI"] = 1 if self.env.vehicle.EHMI == 'Y' else 0
             df["Safety"] = close_vehicles[0].DSF if close_vehicles else 0
-            # df["Safety"] = 0
-
-        # # 判断是否在交叉口范围内
-        # intersection_presence = False
-        # if intersection_presence:
-        #     df['presence'] = 0.
-        #     df['presence'] = np.where((df['x'] > -1) & (df['x'] < 31) & (df['y'] > -32), 1., df['presence'])
-        # # print(df)
-        # # Normalize and clip
-        # if self.normalize:
-        #     df = self.normalize_obs(df)
-        # print(df)
-        #
-        # # 是否存储相对信息
-        # relative_position = False
-        # if relative_position:
-        #     for i in range(1, self.vehicles_count):
-        #         df.iloc[i, df.columns.get_loc('x')] -= df.iloc[0, df.columns.get_loc('x')]
-        #         df.iloc[i, df.columns.get_loc('y')] -= df.iloc[0, df.columns.get_loc('y')]
-        #         df.iloc[i, df.columns.get_loc('vx')] -= df.iloc[0, df.columns.get_loc('vx')]
-        #         df.iloc[i, df.columns.get_loc('vy')] -= df.iloc[0, df.columns.get_loc('vy')]
-        # # print(df)
 
         ego_vehicle = df.iloc[0, :].to_dict()
         vehicles = {}

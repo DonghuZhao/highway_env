@@ -60,7 +60,7 @@ class IntersectionEnv(AbstractEnv):
                 # "target_speeds": [0, 4.5, 9],
                 "steering_range": [-np.pi / 4, np.pi / 4],
                 "dynamical": True,
-                "EHMI": False
+                "EHMI": True
             },
             "duration": 20,  # [s]
             "type": "left",
@@ -90,7 +90,9 @@ class IntersectionEnv(AbstractEnv):
     def __init__(self, *args, **kwargs):
         # 添加子类的新属性
         self.other_vehicles = []
-        self.EHMI = 'N'
+        self.EHMI = None
+        self.EHMI_CHANGED = False
+        self.EHMISHOW_STEPS = 0
         self.ego_pass_time = None
         self.other_pass_time = None
         self.ego_travel_time = None
@@ -105,7 +107,7 @@ class IntersectionEnv(AbstractEnv):
 
     def _agent_reward(self, action: int, vehicle: Vehicle) -> float:
         # 将车辆速度映射到指定的速度范围内，得到一个标准化的速度值 scaled_speed
-        scaled_speed = utils.lmap(self.vehicle.speed, self.config["reward_speed_range"], [0, 1])
+        scaled_speed = utils.lmap(self.vehicle.speed, self.get_wrapper_attr('config')["reward_speed_range"], [0, 1])
         ang_off = abs(vehicle.lane_offset[2])
         lat_off = abs(vehicle.lane_offset[1])
 
@@ -129,14 +131,14 @@ class IntersectionEnv(AbstractEnv):
 
         # 10 * ang_off ** 2
         # reward_v1
-        reward = self.config["collision_reward"] * vehicle.crashed \
-                 + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
+        reward = self.get_wrapper_attr('config')["collision_reward"] * vehicle.crashed \
+                 + self.get_wrapper_attr('config')["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
                  + 1 / (1 + 10 * ang_off ** 2) \
                  + navi
 
         # # reward_v6
-        # reward = self.config["collision_reward"] * vehicle.crashed \
-        #          + self.config["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
+        # reward = self.get_wrapper_attr('config')["collision_reward"] * vehicle.crashed \
+        #          + self.get_wrapper_attr('config')["high_speed_reward"] * np.clip(scaled_speed, 0, 1)\
         #          + 1 / (1 + 10 * ang_off ** 2)
 
         # # reward_v2
@@ -148,14 +150,21 @@ class IntersectionEnv(AbstractEnv):
         #     reward -= 3
         # reward_v4
         if not self.ego_pass_time or not self.other_pass_time:
-            reward += self._pet_reward()
+            reward_ = self._pet_reward()
+            # if reward_ != 0:
+            #     print("pet_reward:", reward_)
+            reward += reward_
         # reward_v5
         if not self.ego_travel_time:
-            reward += self._passtime_reward()
+            reward_ = self._passtime_reward()
+            # if reward_ != 0:
+            #     print("passtime_reward:", reward_)
+            reward += reward_
+
         # reward_v7
         if vehicle.crashed:
             # print("crash")
-            reward = self.config["collision_reward"]
+            reward = self.get_wrapper_attr('config')["collision_reward"]
 
         # # reward_v8
         # pet = self._safety_sensor()
@@ -163,15 +172,24 @@ class IntersectionEnv(AbstractEnv):
         # reward += pet
 
         # reward_v9
-        reward += self._stop_line_reward()
+        # reward += self._stop_line_reward()
+        reward += self._stop_line_reward() * 2 #EHMI
 
-        # 如果车辆已经到达目的地，则将到达奖励 self.config["arrived_reward"] 赋值给总奖励
+        # reward_v10
+        reward_ = self._EHMI_reward()
+        reward += reward_
+
+        # reward_v11
+        if self.EHMI_CHANGED:
+            reward -= 3
+
+        # 如果车辆已经到达目的地，则将到达奖励 self.get_wrapper_attr('config')["arrived_reward"] 赋值给总奖励
         # print(vehicle.lane_index, vehicle.lane.local_coordinates(vehicle.position)[0])
         if self.has_arrived(vehicle):
-            reward = self.config["arrived_reward"]
+            reward = self.get_wrapper_attr('config')["arrived_reward"]
             # print("arrived")
-        if self.config["normalize_reward"]:
-            reward = utils.lmap(reward, [self.config["collision_reward"], self.config["arrived_reward"]], [-1, 1])
+        if self.get_wrapper_attr('config')["normalize_reward"]:
+            reward = utils.lmap(reward, [self.get_wrapper_attr('config')["collision_reward"], self.get_wrapper_attr('config')["arrived_reward"]], [-1, 1])
         reward = 0 if not vehicle.on_road else reward
 
         reward = 0 if self._is_truncated() and not self.has_arrived(vehicle) else reward
@@ -183,7 +201,7 @@ class IntersectionEnv(AbstractEnv):
 
     def _pet_reward(self):
         """给出冲突的稀疏奖励"""
-        if self.config['type'] == "left":
+        if self.get_wrapper_attr('config')['type'] == "left":
             # 冲突点 左转车 y:-17.5，
             # 直行车 x: 3
             if self.vehicle.position[1] < -17.5:
@@ -196,7 +214,7 @@ class IntersectionEnv(AbstractEnv):
             if self.ego_pass_time and self.other_pass_time:
                 # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
                 return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
-        elif self.config['type'] == "straight":
+        elif self.get_wrapper_attr('config')['type'] == "straight":
             if self.vehicle.position[0] < 3:
                 if not self.ego_pass_time:
                     self.ego_pass_time = self.steps
@@ -214,7 +232,7 @@ class IntersectionEnv(AbstractEnv):
         """给出效率的稀疏奖励"""
         target_lane = ('il2', 'o2', 0)
         MAXPASSTIME = 200
-        if self.config['type'] == "straight":
+        if self.get_wrapper_attr('config')['type'] == "straight":
             target_lane = ('il1', 'o1', 0)
 
         if self.vehicle.lane_index == target_lane:
@@ -260,7 +278,7 @@ class IntersectionEnv(AbstractEnv):
             # print(self.pass_stop_line)
             return 0
         self.pass_stop_line = True
-        reward = self.config['arrived_reward'] / 2
+        reward = self.get_wrapper_attr('config')['arrived_reward'] / 2
         pet = ObservationUtils.calculate_pre_pet(x, y, v, yaw, obx, oby, obv, obyaw, ego_type=ego_type)
         # print("pet:", pet)
         pet = abs(pet)
@@ -268,17 +286,27 @@ class IntersectionEnv(AbstractEnv):
             return reward
         return reward - (5 - pet) * 0.5
 
-
-
+    def _EHMI_reward(self) -> float:
+        if self.ego_pass_time and not self.other_pass_time:
+            if self.EHMI == 'Y':
+                return -2
+            elif self.EHMI == 'R':
+                return 2
+        elif not self.ego_pass_time and self.other_pass_time:
+            if self.EHMI == 'R':
+                return -2
+            elif self.EHMI == 'Y':
+                return 2
+        return 0
 
     def _is_terminated(self) -> bool:
         # if any(vehicle.crashed for vehicle in self.controlled_vehicles):
         #     print("crash")
         # if all(self.has_arrived(vehicle) for vehicle in self.controlled_vehicles):
         #     print("arrived")
-        # if self.steps >= self.config["duration"] * self.config["policy_frequency"]:
+        # if self.steps >= self.get_wrapper_attr('config')["duration"] * self.get_wrapper_attr('config')["policy_frequency"]:
         #     print("duration")
-        # if (self.config["offroad_terminal"] and not self.vehicle.on_road):
+        # if (self.get_wrapper_attr('config')["offroad_terminal"] and not self.vehicle.on_road):
         #     print("offroad")
         # if (self.vehicle.lane_index != ('o1', 'ir1', 0)) and (self.vehicle.lane_index != ('ir1', 'il2', 0)) and (
         #         self.vehicle.lane_index != ('il2', 'o2', 0)):
@@ -291,8 +319,8 @@ class IntersectionEnv(AbstractEnv):
             reverse_speed = True
         return any(vehicle.crashed for vehicle in self.controlled_vehicles) \
                or all(self.has_arrived(vehicle) for vehicle in self.controlled_vehicles) \
-               or self.steps >= self.config["duration"] * self.config["policy_frequency"] \
-               or (self.config["offroad_terminal"] and not self.vehicle.on_road)\
+               or self.steps >= self.get_wrapper_attr('config')["duration"] * self.get_wrapper_attr('config')["policy_frequency"] \
+               or (self.get_wrapper_attr('config')["offroad_terminal"] and not self.vehicle.on_road)\
                or self._agent_is_out_of_boundary() \
                or self.vehicle.speed < 0 \
                or reverse_speed
@@ -300,13 +328,13 @@ class IntersectionEnv(AbstractEnv):
     def _agent_is_terminal(self, vehicle: Vehicle) -> bool:
         """The episode is over when a collision occurs or when the access ramp has been passed."""
         return vehicle.crashed \
-            or self.steps >= self.config["duration"] * self.config["policy_frequency"] \
+            or self.steps >= self.get_wrapper_attr('config')["duration"] * self.get_wrapper_attr('config')["policy_frequency"] \
             or self.has_arrived(vehicle)
 
     #车道边界终止条件
     def _agent_is_out_of_boundary(self) -> bool:
         """The episode is over when ego vehicle cross the boundary of the road."""
-        if self.config["type"] == "straight":
+        if self.get_wrapper_attr('config')["type"] == "straight":
             return (self.vehicle.lane_index != ('o3', 'ir3', 0)) and (
                         self.vehicle.lane_index != ('ir3', 'il1', 0)) and (
                     self.vehicle.lane_index != ('il1', 'o1', 0))
@@ -316,7 +344,7 @@ class IntersectionEnv(AbstractEnv):
 
     def _is_truncated(self) -> bool:
         """The episode is truncated if the time limit is reached."""
-        return self.time >= self.config["duration"]
+        return self.time >= self.get_wrapper_attr('config')["duration"]
 
     def _info(self, obs: np.ndarray, action: int) -> dict:
         info = super()._info(obs, action)
@@ -326,22 +354,48 @@ class IntersectionEnv(AbstractEnv):
 
     def _reset(self) -> None:
         self._make_road()
-        self._make_vehicles(self.config["initial_vehicle_count"])
+        self._make_vehicles(self.get_wrapper_attr('config')["initial_vehicle_count"])
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
-        """
-        The EHMI is randomly assigned to the ego vehicle.
-        """
-        # print("env_read:", self.EHMI)
-        # EHMI信息传递给其他背景车
-        for v in self.road.vehicles:
-            v.EHMI = self.EHMI
 
         obs, reward, done, truncated, info = super().step(action)
         self._clear_vehicles()
-        # self._spawn_vehicle(spawn_probability=self.config["spawn_probability"])
-        # print("steps:",self.steps)
+
         return obs, reward, done, truncated, info
+
+    def update_EHMI(self, EHMI=None):
+        """
+        根据策略网络的EHMI输出更新环境中的EHMI
+        distance > 80 时不显示EHMI
+        EHMI显示的最短时间为2s（2s内不允许更换内容)
+        """
+        self.EHMI_CHANGED = False # 初始化
+        distance = ObservationUtils.calculate_distance(self.vehicle.position[0],
+                                                       self.vehicle.position[1],
+                                                       self.road.vehicles[0].position[0],
+                                                       self.road.vehicles[0].position[1])
+        ego_distance2conflict = ObservationUtils.calculate_distance(self.vehicle.position[0],
+                                                                   self.vehicle.position[1],
+                                                                   3, -17.5)
+        if (distance > 80
+                or self.ego_pass_time is not None
+                or self.other_pass_time is not None):   # 不显示EHMI
+            self.EHMI = None
+            self.EHMISHOW_STEPS = 0
+        elif self.EHMI is None:
+            self.EHMI = EHMI
+            self.EHMISHOW_STEPS += 1
+        elif (self.EHMISHOW_STEPS < 2 * self.unwrapped.config["policy_frequency"]
+              or self.EHMI == EHMI or ego_distance2conflict < 10):
+            self.EHMISHOW_STEPS += 1
+        else:
+            self.EHMISHOW_STEPS = 0
+            self.EHMI = EHMI
+            self.EHMI_CHANGED = True
+
+        # EHMI信息传递给其他背景车
+        for v in self.road.vehicles:
+            v.EHMI = self.EHMI
 
     def _make_road(self) -> None:
 
@@ -444,13 +498,13 @@ class IntersectionEnv(AbstractEnv):
                      StraightLane([-1.63, -20.3], [-21.63, -20.3], width=3, line_types=[s, c], priority=0,
                                   speed_limit=30))
 
-        road = RegulatedRoad(network=net, np_random=self.np_random, record_history=self.config["show_trajectories"])
+        road = RegulatedRoad(network=net, np_random=self.np_random, record_history=self.get_wrapper_attr('config')["show_trajectories"])
         self.road = road
 
     def _make_vehicles(self, n_vehicles: int = 10) -> None:
 
         # Configure vehicles
-        vehicle_type = utils.class_from_path(self.config["other_vehicles_type"])
+        vehicle_type = utils.class_from_path(self.get_wrapper_attr('config')["other_vehicles_type"])
         vehicle_type.DISTANCE_WANTED = 7  # Low jam distance
         vehicle_type.COMFORT_ACC_MAX = 6
         vehicle_type.COMFORT_ACC_MIN = -6
@@ -458,7 +512,7 @@ class IntersectionEnv(AbstractEnv):
         #选择主车进入的交叉口
         # mode = 's2n'
         mode = 'w2e'
-        mode = 'e2w' if self.config["type"] == 'straight' else 'w2e'
+        mode = 'e2w' if self.get_wrapper_attr('config')["type"] == 'straight' else 'w2e'
         if mode == 'w2e':
             ego_lane = ("o1", "ir1", 0)
             ego_target = "o2"
@@ -502,8 +556,8 @@ class IntersectionEnv(AbstractEnv):
 
         # Controlled vehicles
         self.controlled_vehicles = []
-        logitudinal = 20 if self.config['type'] == 'straight' else 5
-        for ego_id in range(0, self.config["controlled_vehicles"]):
+        logitudinal = 20 if self.get_wrapper_attr('config')['type'] == 'straight' else 5
+        for ego_id in range(0, self.get_wrapper_attr('config')["controlled_vehicles"]):
             ego_lane = self.road.network.get_lane(ego_lane)
             ego_vehicle = self.action_type.vehicle_class(
                              self.road,
@@ -533,7 +587,7 @@ class IntersectionEnv(AbstractEnv):
                        dest_index: str = "o1",
                        go_straight: bool = False) -> None:
 
-        vehicle_type = utils.class_from_path(self.config["other_vehicles_type"])
+        vehicle_type = utils.class_from_path(self.get_wrapper_attr('config')["other_vehicles_type"])
         vehicle = vehicle_type.make_on_lane(self.road, lane_index,
                                             longitudinal=longitudinal,
                                             speed=speed)
@@ -563,9 +617,9 @@ class IntersectionEnv(AbstractEnv):
             j = 1
             return logitudinal[i], speed[j]
         else:
-            logitudinal = np.random.randint(10, 30)
+            logitudinal = np.random.randint(10, 30) #10-30
             speed = np.random.randint(6, 8)
-            if self.config["type"] == "straight":
+            if self.get_wrapper_attr('config')["type"] == "straight":
                 logitudinal = np.random.randint(0, 25)
                 speed = np.random.randint(6, 8)
             # logitudinal = 30
@@ -595,7 +649,7 @@ class ContinuousIntersectionEnv(IntersectionEnv):
         config = super().default_config()
         config['action'].update({
                     "type": "ContinuousAction",
-                    "steering_range": [-np.pi / 8, np.pi / 8], # 3
+                    "steering_range": [-np.pi / 4, np.pi / 4], # 3
                     "longitudinal": True,
                     "lateral": True,
                     "dynamical": True

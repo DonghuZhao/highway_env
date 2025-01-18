@@ -63,7 +63,7 @@ class IntersectionEnv(AbstractEnv):
                 "EHMI": True
             },
             "duration": 20,  # [s]
-            "type": "left",
+            "type": "straight",
             "destination": "o2",        # left:"o2", straight:"
             "simulation_frequency": 10,  # [Hz] # 15
             "policy_frequency": 5,  # [Hz]  # 1
@@ -72,7 +72,7 @@ class IntersectionEnv(AbstractEnv):
             "spawn_probability": 0.6,
             "screen_width": 1000,
             "screen_height": 1000,
-            "centering_position": [0.2, 0.6],       # 0.2, 0.6
+            "centering_position": [0.7, 0.6],       # 0.2, 0.6
             "scaling": 7.5 * 1.8,
             "collision_reward": -10,  # -3
             "high_speed_reward": 3, # 3  #8
@@ -93,6 +93,7 @@ class IntersectionEnv(AbstractEnv):
         self.EHMI = None
         self.EHMI_CHANGED = False
         self.EHMISHOW_STEPS = 0
+        self.EHMI_REWARD = False
         self.ego_pass_time = None
         self.other_pass_time = None
         self.ego_travel_time = None
@@ -172,16 +173,19 @@ class IntersectionEnv(AbstractEnv):
         # reward += pet
 
         # reward_v9
-        # reward += self._stop_line_reward()
-        reward += self._stop_line_reward() * 2 #EHMI
+        reward += self._stop_line_reward(ego_type=self.get_wrapper_attr('config')["type"])
+        # reward += self._stop_line_reward() * 2 #EHMI defensive
 
         # reward_v10
         reward_ = self._EHMI_reward()
+        if reward_ != 0:
+            self.EHMI_REWARD = True
         reward += reward_
 
         # reward_v11
         if self.EHMI_CHANGED:
             reward -= 3
+
 
         # 如果车辆已经到达目的地，则将到达奖励 self.get_wrapper_attr('config')["arrived_reward"] 赋值给总奖励
         # print(vehicle.lane_index, vehicle.lane.local_coordinates(vehicle.position)[0])
@@ -224,7 +228,9 @@ class IntersectionEnv(AbstractEnv):
                        self.other_pass_time = self.steps
             if self.ego_pass_time and self.other_pass_time:
                 # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
-                return self.get_wrapper_attr('config')["pet_reward"] * abs(self.other_pass_time - self.ego_pass_time) / 100
+                pet = self.other_pass_time - self.ego_pass_time
+                # return self.get_wrapper_attr('config')["pet_reward"] * abs(pet) / 100
+                return self.get_wrapper_attr('config')["pet_reward"] * max(min(pet, 50), -50) / 50
         # print(self.ego_pass_time, self.other_pass_time)
         return 0
 
@@ -232,14 +238,16 @@ class IntersectionEnv(AbstractEnv):
         """给出效率的稀疏奖励"""
         target_lane = ('il2', 'o2', 0)
         MAXPASSTIME = 200
+        pass_reward = self.get_wrapper_attr('config')["pass_time_reward"]
         if self.get_wrapper_attr('config')['type'] == "straight":
             target_lane = ('il1', 'o1', 0)
+            pass_reward = 10
 
         if self.vehicle.lane_index == target_lane:
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
             # print('travel_time:', self.ego_travel_time)
-            return self.get_wrapper_attr('config')["pass_time_reward"] * (1 - self.ego_travel_time / MAXPASSTIME)
+            return pass_reward * (1 - self.ego_travel_time / MAXPASSTIME)
         return 0
 
     def _safety_sensor(self) -> float:
@@ -274,8 +282,9 @@ class IntersectionEnv(AbstractEnv):
         obv = self.road.vehicles[0].speed
         obyaw = self.road.vehicles[0].heading
 
-        if x < -4 or self.pass_stop_line:
-            # print(self.pass_stop_line)
+        if self.pass_stop_line:
+            return 0
+        if (ego_type == "left" and x < -1) or (ego_type == "straight" and x > 31):
             return 0
         self.pass_stop_line = True
         reward = self.get_wrapper_attr('config')['arrived_reward'] / 2
@@ -287,16 +296,18 @@ class IntersectionEnv(AbstractEnv):
         return reward - (5 - pet) * 0.5
 
     def _EHMI_reward(self) -> float:
+        if self.EHMI_REWARD:
+            return 0
         if self.ego_pass_time and not self.other_pass_time:
             if self.EHMI == 'Y':
-                return -2
+                return -5
             elif self.EHMI == 'R':
-                return 2
+                return 5
         elif not self.ego_pass_time and self.other_pass_time:
             if self.EHMI == 'R':
-                return -2
+                return -5
             elif self.EHMI == 'Y':
-                return 2
+                return 5
         return 0
 
     def _is_terminated(self) -> bool:
@@ -409,9 +420,9 @@ class IntersectionEnv(AbstractEnv):
         n, c, s = LineType.NONE, LineType.CONTINUOUS, LineType.STRIPED
 # 西方向
     # 进口道
-        net.add_lane("o1", "ir1", StraightLane([-21.63, -14.3], [-1.63, -14.3], line_types=[c, s],
+        net.add_lane("o1", "ir1", StraightLane([-41.63, -14.3], [-1.63, -14.3], line_types=[c, s],
                                                width=3, priority=0, speed_limit=30))
-        net.add_lane("o1a", "ir1a", StraightLane([-21.63, -11.3], [-1.63, -11.3], width=3,
+        net.add_lane("o1a", "ir1a", StraightLane([-41.63, -11.3], [-1.63, -11.3], width=3,
                                                 line_types=[n, c], priority=0, speed_limit=30))
     # 连接段
     #     # 2条直行车道
@@ -428,16 +439,16 @@ class IntersectionEnv(AbstractEnv):
         # 左转车道,连接北出口道
         net.add_lane("ir1", "il2",
                      CircularLane([-2, -31], 17, np.radians(95), np.radians(-5), width=5,clockwise=False,
-                                  line_types=[n, n], priority=0, speed_limit=30))
+                                  line_types=[n, n], priority=0, speed_limit=15))
     # 右侧出口道
         net.add_lane("il0", "o0",
                      StraightLane([12.95, 0.33], [12.95, 10.5], width=3.5,line_types=[n, c], priority=0,
                                   speed_limit=30))
 # 东方向
     # 进口道
-        net.add_lane("o3", "ir3", StraightLane([51.14, -17.9], [31.14, -17.9], line_types=[n, n],
+        net.add_lane("o3", "ir3", StraightLane([81.14, -17.9], [31.14, -17.9], line_types=[n, n],
                                                width=3, priority=0, speed_limit=30))
-        net.add_lane("o3a", "ir3a", StraightLane([51.14, -20.9], [31.14, -20.9], width=3,
+        net.add_lane("o3a", "ir3a", StraightLane([81.14, -20.9], [31.14, -20.9], width=3,
                                                  line_types=[s, c], priority=0, speed_limit=30))
     # 连接段
         # 2条直行车道
@@ -473,10 +484,10 @@ class IntersectionEnv(AbstractEnv):
                                   line_types=[n, n], priority=0, speed_limit=30))
      # 右侧出口道
         net.add_lane("il3", "o3",
-                     StraightLane([31.14, -14.9], [51.14, -14.9], width=3, line_types=[c, s], priority=0,
+                     StraightLane([31.14, -14.9], [81.14, -14.9], width=3, line_types=[c, s], priority=0,
                                   speed_limit=30))
         net.add_lane("il3a", "o3",
-                     StraightLane([31.14, -11.9], [51.14, -11.9], width=3, line_types=[n, c], priority=0,
+                     StraightLane([31.14, -11.9], [81.14, -11.9], width=3, line_types=[n, c], priority=0,
                                   speed_limit=30))
 # 北方向
     # 进口道
@@ -492,10 +503,10 @@ class IntersectionEnv(AbstractEnv):
                                   line_types=[n, c], priority=0, speed_limit=30))
     # 右侧出口道
         net.add_lane("il1", "o1",
-                     StraightLane([-1.63, -17.2], [-21.63, -17.3], width=3, line_types=[n, n], priority=0,
+                     StraightLane([-1.63, -17.2], [-41.63, -17.3], width=3, line_types=[n, n], priority=0,
                                   speed_limit=30))
         net.add_lane("il1a", "o1",
-                     StraightLane([-1.63, -20.3], [-21.63, -20.3], width=3, line_types=[s, c], priority=0,
+                     StraightLane([-1.63, -20.3], [-41.63, -20.3], width=3, line_types=[s, c], priority=0,
                                   speed_limit=30))
 
         road = RegulatedRoad(network=net, np_random=self.np_random, record_history=self.get_wrapper_attr('config')["show_trajectories"])
@@ -621,9 +632,9 @@ class IntersectionEnv(AbstractEnv):
             speed = np.random.randint(6, 8)
             if self.get_wrapper_attr('config')["type"] == "straight":
                 logitudinal = np.random.randint(0, 25)
-                speed = np.random.randint(6, 8)
-            # logitudinal = 25
-            # speed = 6
+                speed = np.random.randint(4, 8) # 6 - 8
+            # logitudinal = 0
+            # speed = 4
             return logitudinal, speed
 
     def _clear_vehicles(self) -> None:

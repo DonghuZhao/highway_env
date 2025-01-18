@@ -213,6 +213,7 @@ class AbstractEnv(gym.Env):
         self.other_pass_time = None
         self.ego_travel_time = None
         self.pass_stop_line = False
+        self.EHMI_REWARD = False
         return obs, info
 
     def _reset(self) -> None:

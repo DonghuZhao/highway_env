@@ -633,8 +633,8 @@ class IntersectionEnv(AbstractEnv):
             if self.get_wrapper_attr('config')["type"] == "straight":
                 logitudinal = np.random.randint(0, 25)
                 speed = np.random.randint(4, 8) # 6 - 8
-            # logitudinal = 0
-            # speed = 4
+            # logitudinal = 25
+            # speed = 8
             return logitudinal, speed
 
     def _clear_vehicles(self) -> None:

@@ -153,13 +153,13 @@ class IntersectionEnv(AbstractEnv):
         if not self.ego_pass_time or not self.other_pass_time:
             reward_ = self._pet_reward()
             # if reward_ != 0:
-            #     print("pet_reward:", reward_)
+                # print("pet_reward:", reward_)
             reward += reward_
         # reward_v5
         if not self.ego_travel_time:
             reward_ = self._passtime_reward()
             # if reward_ != 0:
-            #     print("passtime_reward:", reward_)
+                # print("passtime_reward:", reward_)
             reward += reward_
 
         # reward_v7
@@ -198,7 +198,7 @@ class IntersectionEnv(AbstractEnv):
 
         reward = 0 if self._is_truncated() and not self.has_arrived(vehicle) else reward
 
-        reward = 0 if self._is_terminated() and not self.has_arrived(vehicle) else reward
+        reward = -1 if self._is_terminated() and not self.has_arrived(vehicle) else reward
         # print("norm_reward:", reward)
 
         return reward
@@ -230,7 +230,7 @@ class IntersectionEnv(AbstractEnv):
                 # print('pet:', abs(self.other_pass_time - self.ego_pass_time))
                 pet = self.other_pass_time - self.ego_pass_time
                 # return self.get_wrapper_attr('config')["pet_reward"] * abs(pet) / 100
-                return self.get_wrapper_attr('config')["pet_reward"] * max(min(pet, 50), -50) / 50
+                return self.get_wrapper_attr('config')["pet_reward"] * min(pet, 50) / 50
         # print(self.ego_pass_time, self.other_pass_time)
         return 0
 
@@ -238,16 +238,18 @@ class IntersectionEnv(AbstractEnv):
         """给出效率的稀疏奖励"""
         target_lane = ('il2', 'o2', 0)
         MAXPASSTIME = 200
+        MINPASSTIME = 50
         pass_reward = self.get_wrapper_attr('config')["pass_time_reward"]
         if self.get_wrapper_attr('config')['type'] == "straight":
             target_lane = ('il1', 'o1', 0)
-            pass_reward = 10
+            MAXPASSTIME = 100
+            # pass_reward = 10
 
         if self.vehicle.lane_index == target_lane:
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
             # print('travel_time:', self.ego_travel_time)
-            return pass_reward * (1 - self.ego_travel_time / MAXPASSTIME)
+            return pass_reward * (1 - (self.ego_travel_time - MINPASSTIME) / (MAXPASSTIME - MINPASSTIME))
         return 0
 
     def _safety_sensor(self) -> float:
@@ -300,12 +302,12 @@ class IntersectionEnv(AbstractEnv):
             return 0
         if self.ego_pass_time and not self.other_pass_time:
             if self.EHMI == 'Y':
-                return -5
+                return -10
             elif self.EHMI == 'R':
                 return 5
         elif not self.ego_pass_time and self.other_pass_time:
             if self.EHMI == 'R':
-                return -5
+                return -10
             elif self.EHMI == 'Y':
                 return 5
         return 0

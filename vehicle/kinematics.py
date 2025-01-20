@@ -106,7 +106,7 @@ class Vehicle(RoadObject):
         :param action: the input action
         """
         if action:
-            # action['acceleration'] = 0.
+            # print("action:", action)
             self.action = action
 
     def step(self, dt: float) -> None:

@@ -63,7 +63,7 @@ class IntersectionEnv(AbstractEnv):
                 "EHMI": True
             },
             "duration": 20,  # [s]
-            "type": "straight",
+            "type": "left",
             "destination": "o2",        # left:"o2", straight:"
             "simulation_frequency": 10,  # [Hz] # 15
             "policy_frequency": 5,  # [Hz]  # 1

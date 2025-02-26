@@ -153,19 +153,19 @@ class IntersectionEnv(AbstractEnv):
         if not self.ego_pass_time or not self.other_pass_time:
             reward_ = self._pet_reward()
             # if reward_ != 0:
-                # print("pet_reward:", reward_)
+            #     print("pet_reward:", reward_)
             reward += reward_
         # reward_v5
         if not self.ego_travel_time:
             reward_ = self._passtime_reward()
             # if reward_ != 0:
-                # print("passtime_reward:", reward_)
+            #     print("passtime_reward:", reward_)
             reward += reward_
 
-        # reward_v7
-        if vehicle.crashed:
-            # print("crash")
-            reward = self.get_wrapper_attr('config')["collision_reward"]
+        # # reward_v7
+        # if vehicle.crashed:
+        #     # print("crash")
+        #     reward = self.get_wrapper_attr('config')["collision_reward"]
 
         # # reward_v8
         # pet = self._safety_sensor()
@@ -174,7 +174,7 @@ class IntersectionEnv(AbstractEnv):
 
         # reward_v9
         reward += self._stop_line_reward(ego_type=self.get_wrapper_attr('config')["type"])
-        # reward += self._stop_line_reward() * 2 #EHMI defensive
+        # reward += self._stop_line_reward(ego_type=self.get_wrapper_attr('config')["type"]) * 2 #EHMI defensive
 
         # reward_v10
         reward_ = self._EHMI_reward()
@@ -249,8 +249,10 @@ class IntersectionEnv(AbstractEnv):
             self.ego_travel_time = self.steps
         if self.ego_travel_time:
             # print('travel_time:', self.ego_travel_time)
-            return pass_reward * (1 - (self.ego_travel_time - MINPASSTIME) / (MAXPASSTIME - MINPASSTIME))
+            # return pass_reward * (1 - (self.ego_travel_time - MINPASSTIME) / (MAXPASSTIME - MINPASSTIME))
+            return pass_reward * (1 - self.ego_travel_time / MAXPASSTIME)
         return 0
+
 
     def _safety_sensor(self) -> float:
         """
@@ -305,11 +307,12 @@ class IntersectionEnv(AbstractEnv):
                 return -10
             elif self.EHMI == 'R':
                 return 5
-        elif not self.ego_pass_time and self.other_pass_time:
-            if self.EHMI == 'R':
-                return -10
-            elif self.EHMI == 'Y':
-                return 5
+        # if not self.ego_pass_time and self.other_pass_time:
+        #     if self.EHMI == 'R':
+        #         return -10
+        #     elif self.EHMI == 'Y':
+        #         # print('good')
+        #         return 5
         return 0
 
     def _is_terminated(self) -> bool:
@@ -569,13 +572,14 @@ class IntersectionEnv(AbstractEnv):
 
         # Controlled vehicles
         self.controlled_vehicles = []
-        logitudinal = 20 if self.get_wrapper_attr('config')['type'] == 'straight' else 5
+        logitudinal = 20 if self.get_wrapper_attr('config')['type'] == 'straight' else 20
+        speed = 6 if self.get_wrapper_attr('config')['type'] == 'straight' else 4
         for ego_id in range(0, self.get_wrapper_attr('config')["controlled_vehicles"]):
             ego_lane = self.road.network.get_lane(ego_lane)
             ego_vehicle = self.action_type.vehicle_class(
                              self.road,
                              ego_lane.position(logitudinal, 0),  # -1        #5logi
-                             speed=6, # 0
+                             speed=speed, # 0
                              heading=ego_lane.heading_at(60))
             try:
                 ego_vehicle.plan_route_to(ego_target)
@@ -630,13 +634,13 @@ class IntersectionEnv(AbstractEnv):
             j = 1
             return logitudinal[i], speed[j]
         else:
-            logitudinal = np.random.randint(10, 30) #10-30
-            speed = np.random.randint(6, 8)
+            logitudinal = np.random.randint(40, 50) #10-30
+            speed = np.random.randint(6, 10)
             if self.get_wrapper_attr('config')["type"] == "straight":
-                logitudinal = np.random.randint(0, 25)
-                speed = np.random.randint(4, 8) # 6 - 8
-            # logitudinal = 25
-            # speed = 8
+                logitudinal = np.random.randint(10, 30)  # 10 -30
+                speed = np.random.randint(2, 8) # 6 - 8
+            # logitudinal = 30
+            # speed = 6
             return logitudinal, speed
 
     def _clear_vehicles(self) -> None:

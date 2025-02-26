@@ -664,8 +664,8 @@ class LinearIDMVehicle(IDMVehicle):
         "COMFORT_ACC_MAX": [5.0, 2.5],
         "DISTANCE_WANTED": [3.0 + ControlledVehicle.LENGTH, 5.0 + ControlledVehicle.LENGTH],
         "TIME_WANTED": [0.5, 1.5],
-        # "TARGET_SPEED": [10, 4],  # left
-        "TARGET_SPEED": [7, 3],
+        "TARGET_SPEED": [10, 4],  # left
+        # "TARGET_SPEED": [7, 3],
     }
 
     @classmethod
